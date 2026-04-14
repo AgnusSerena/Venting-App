@@ -10,12 +10,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
+  speech_to_text: ^6.6.0
   cupertino_icons: ^1.0.8
   flutter_sound: ^9.2.13
   permission_handler: ^11.0.0
   path_provider: ^2.1.2
-  http: ^1.2.0
+  http: ^0.13.6
   flutter_tts: ^3.8.5
 
 dev_dependencies:
