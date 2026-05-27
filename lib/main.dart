@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 void main() {
@@ -10,6 +13,7 @@ class VentingApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      title: "Emotion AI Assistant",
       home: ChatScreen(),
     );
   }
@@ -17,211 +21,389 @@ class VentingApp extends StatelessWidget {
 
 class ChatScreen extends StatefulWidget {
   @override
-  _ChatScreenState createState() => _ChatScreenState();
+  State<ChatScreen> createState() => _ChatScreenState();
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  List<Map<String, String>> messages = [];
-  TextEditingController controller = TextEditingController();
-  ScrollController scrollController = ScrollController();
 
-  late stt.SpeechToText _speech;
-  bool _isListening = false;
-  bool _isProcessingVoice = false;
+  final TextEditingController controller = TextEditingController();
+
+  final ScrollController scrollController = ScrollController();
+
+  List<Map<String, dynamic>> messages = [];
+
+  late stt.SpeechToText speech;
+
+  bool isListening = false;
+
+  bool isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _speech = stt.SpeechToText();
+    speech = stt.SpeechToText();
   }
 
-  /// Add message
+  // ---------------- ADD MESSAGE ---------------- //
+
   void addMessage(String text, bool isUser) {
+
     setState(() {
+
       messages.add({
         "text": text,
-        "sender": isUser ? "user" : "bot",
+        "isUser": isUser,
       });
+
     });
 
     Future.delayed(Duration(milliseconds: 100), () {
+
       scrollController.animateTo(
         scrollController.position.maxScrollExtent,
         duration: Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
+
     });
   }
 
-  /// Send typed message
-  void sendMessage() {
+  // ---------------- SEND MESSAGE ---------------- //
+
+  Future<void> sendMessage() async {
+
     if (controller.text.trim().isEmpty) return;
 
     String userText = controller.text.trim();
 
     addMessage(userText, true);
+
     controller.clear();
 
-    Future.delayed(Duration(milliseconds: 500), () {
-      addMessage("I'm here for you 💙", false);
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+
+      final response = await http.post(
+
+        Uri.parse("http://127.0.0.1:5000/chat"),
+
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: jsonEncode({
+          "message": userText,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+
+        final data = jsonDecode(response.body);
+
+        String reply = data["reply"];
+
+        addMessage(reply, false);
+
+      } else {
+
+        addMessage(
+          "Sorry, something went wrong.",
+          false,
+        );
+
+      }
+
+    } catch (e) {
+
+      addMessage(
+        "Cannot connect to AI server.",
+        false,
+      );
+
+      print(e);
+
+    }
+
+    setState(() {
+      isLoading = false;
     });
   }
 
-  /// 🎤 Start Listening
-  void startListening() async {
-    controller.clear(); // clear old text
+  // ---------------- START LISTENING ---------------- //
 
-    bool available = await _speech.initialize(
-      onStatus: (status) => print("Status: $status"),
-      onError: (error) => print("Error: $error"),
-    );
+  Future<void> startListening() async {
+
+    bool available = await speech.initialize();
 
     if (available) {
+
       setState(() {
-        _isListening = true;
-        _isProcessingVoice = true;
+        isListening = true;
       });
 
-      _speech.listen(
+      speech.listen(
+
         onResult: (result) {
-          if (_isProcessingVoice) {
-            setState(() {
-              controller.text = result.recognizedWords;
-            });
-          }
+
+          setState(() {
+
+            controller.text = result.recognizedWords;
+
+          });
+
         },
       );
     }
   }
 
-  /// 🛑 Stop Listening (FIXED)
-  void stopListening() async {
-    _isProcessingVoice = false;
+  // ---------------- STOP LISTENING ---------------- //
 
-    await _speech.stop(); // ensure complete stop
+  Future<void> stopListening() async {
 
-    setState(() => _isListening = false);
+    await speech.stop();
 
-    String spokenText = controller.text.trim();
+    setState(() {
+      isListening = false;
+    });
 
-    if (spokenText.isNotEmpty) {
-      addMessage(spokenText, true);
+    if (controller.text.trim().isNotEmpty) {
 
-      /// 🔥 CLEAR PROPERLY
-      controller.text = "";
-      controller.clear();
+      sendMessage();
 
-      await Future.delayed(Duration(milliseconds: 200));
-
-      setState(() {});
-
-      Future.delayed(Duration(milliseconds: 500), () {
-        addMessage("I'm here for you 💙", false);
-      });
     }
   }
 
-  /// Chat bubble
-  Widget buildMessage(Map<String, String> msg) {
-    bool isUser = msg["sender"] == "user";
+  // ---------------- CHAT BUBBLE ---------------- //
 
-    return Container(
-      margin: EdgeInsets.symmetric(vertical: 6, horizontal: 10),
-      child: Row(
-        mainAxisAlignment:
-            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-        children: [
-          Container(
-            padding: EdgeInsets.all(12),
-            constraints: BoxConstraints(maxWidth: 250),
-            decoration: BoxDecoration(
-              color: isUser ? Colors.blue : Colors.grey[300],
-              borderRadius: BorderRadius.circular(15),
+  Widget buildMessage(Map<String, dynamic> msg) {
+
+    bool isUser = msg["isUser"];
+
+    return Align(
+
+      alignment:
+          isUser
+              ? Alignment.centerRight
+              : Alignment.centerLeft,
+
+      child: Container(
+
+        margin: EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 5,
+        ),
+
+        padding: EdgeInsets.all(14),
+
+        constraints: BoxConstraints(maxWidth: 320),
+
+        decoration: BoxDecoration(
+
+          color: isUser
+              ? Colors.blue
+              : Colors.white,
+
+          borderRadius: BorderRadius.circular(18),
+
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black12,
+              blurRadius: 4,
             ),
-            child: Text(
-              msg["text"]!,
-              style: TextStyle(
-                color: isUser ? Colors.white : Colors.black,
-                fontSize: 16,
-              ),
-            ),
+          ],
+        ),
+
+        child: Text(
+
+          msg["text"],
+
+          style: TextStyle(
+            color:
+                isUser
+                    ? Colors.white
+                    : Colors.black87,
+            fontSize: 16,
+            height: 1.4,
           ),
-        ],
+        ),
       ),
     );
   }
 
+  // ---------------- UI ---------------- //
+
   @override
   Widget build(BuildContext context) {
+
     return Scaffold(
-      backgroundColor: Colors.grey[100],
+
+      backgroundColor: Color(0xFFF4F1F8),
+
       appBar: AppBar(
-        title: Text("Venting Assistant 🤖"),
+
+        elevation: 0,
+
+        backgroundColor: Colors.white,
+
         centerTitle: true,
+
+        title: Text(
+          "Emotion AI Assistant",
+          style: TextStyle(
+            color: Colors.black87,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
+
       body: Column(
+
         children: [
-          /// Chat Area
+
           Expanded(
+
             child: ListView.builder(
+
               controller: scrollController,
+
+              padding: EdgeInsets.only(top: 10),
+
               itemCount: messages.length,
+
               itemBuilder: (context, index) {
+
                 return buildMessage(messages[index]);
+
               },
             ),
           ),
 
-          /// Input Area
+          if (isLoading)
+
+            Padding(
+
+              padding: EdgeInsets.only(bottom: 8),
+
+              child: Text(
+                "Typing...",
+                style: TextStyle(
+                  color: Colors.grey,
+                ),
+              ),
+            ),
+
+          // INPUT AREA
+
           Container(
-            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+
+            padding: EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 10,
+            ),
+
             color: Colors.white,
+
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
+
               children: [
+
                 Expanded(
+
                   child: TextField(
+
                     controller: controller,
+
                     minLines: 1,
                     maxLines: 5,
-                    textInputAction: TextInputAction.send,
+
                     decoration: InputDecoration(
-                      hintText: _isListening
-                          ? "Listening..."
-                          : "Type your thoughts...",
+
+                      hintText:
+                          isListening
+                              ? "Listening..."
+                              : "Share your thoughts...",
+
+                      filled: true,
+
+                      fillColor: Color(0xFFF4F1F8),
+
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(20),
+
+                        borderRadius:
+                            BorderRadius.circular(30),
+
+                        borderSide: BorderSide.none,
                       ),
+
                       contentPadding: EdgeInsets.symmetric(
-                          horizontal: 15, vertical: 10),
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
                     ),
-                    onSubmitted: (_) => sendMessage(),
                   ),
                 ),
 
                 SizedBox(width: 8),
 
-                IconButton(
-                  icon: Icon(Icons.send, color: Colors.blue),
-                  onPressed: sendMessage,
+                // SEND BUTTON
+
+                CircleAvatar(
+
+                  backgroundColor: Colors.blue,
+
+                  child: IconButton(
+
+                    icon: Icon(
+                      Icons.send,
+                      color: Colors.white,
+                    ),
+
+                    onPressed: sendMessage,
+                  ),
                 ),
 
-                IconButton(
-                  icon: Icon(
-                    _isListening ? Icons.mic : Icons.mic_none,
-                    color: _isListening ? Colors.green : Colors.red,
+                SizedBox(width: 8),
+
+                // MIC BUTTON
+
+                CircleAvatar(
+
+                  backgroundColor:
+                      isListening
+                          ? Colors.green
+                          : Colors.red,
+
+                  child: IconButton(
+
+                    icon: Icon(
+
+                      isListening
+                          ? Icons.mic
+                          : Icons.mic_none,
+
+                      color: Colors.white,
+                    ),
+
+                    onPressed: () {
+
+                      if (isListening) {
+
+                        stopListening();
+
+                      } else {
+
+                        startListening();
+
+                      }
+                    },
                   ),
-                  onPressed: () {
-                    if (_isListening) {
-                      stopListening();
-                    } else {
-                      startListening();
-                    }
-                  },
                 ),
               ],
             ),
-          )
+          ),
         ],
       ),
     );
