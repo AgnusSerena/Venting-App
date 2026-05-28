@@ -1,36 +1,46 @@
 import 'dart:convert';
+import 'dart:html' as html;
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 void main() {
-  runApp(VentingApp());
+  runApp(const VentingApp());
 }
 
 class VentingApp extends StatelessWidget {
+  const VentingApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: "Emotion AI Assistant",
-      home: ChatScreen(),
+      title: 'AI Companion',
+      theme: ThemeData(
+        scaffoldBackgroundColor: const Color(0xFFF4F4F6),
+      ),
+      home: const ChatScreen(),
     );
   }
 }
 
 class ChatScreen extends StatefulWidget {
+  const ChatScreen({super.key});
+
   @override
-  State<ChatScreen> createState() => _ChatScreenState();
+  State<ChatScreen> createState() =>
+      _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState
+    extends State<ChatScreen> {
 
-  final TextEditingController controller = TextEditingController();
+  final TextEditingController controller =
+      TextEditingController();
 
-  final ScrollController scrollController = ScrollController();
-
-  List<Map<String, dynamic>> messages = [];
+  final ScrollController scrollController =
+      ScrollController();
 
   late stt.SpeechToText speech;
 
@@ -38,373 +48,796 @@ class _ChatScreenState extends State<ChatScreen> {
 
   bool isLoading = false;
 
+  final List<Map<String, dynamic>>
+      messages = [
+
+    {
+      "text":
+          "Hi, how are you feeling today?",
+      "isUser": false,
+    }
+
+  ];
+
   @override
   void initState() {
+
     super.initState();
+
     speech = stt.SpeechToText();
   }
 
-  // ---------------- ADD MESSAGE ---------------- //
+  void speak(String text) {
 
-  void addMessage(String text, bool isUser) {
+    final synthesis =
+        html.window.speechSynthesis;
+
+    if (synthesis == null) return;
+
+    synthesis.cancel();
+
+    final utterance =
+        html.SpeechSynthesisUtterance(
+            text);
+
+    utterance.lang = 'en-US';
+
+    utterance.rate = 0.9;
+
+    utterance.pitch = 1.0;
+
+    synthesis.speak(utterance);
+  }
+
+  void addMessage(
+      String text,
+      bool isUser) {
 
     setState(() {
 
       messages.add({
+
         "text": text,
         "isUser": isUser,
+
       });
 
     });
 
-    Future.delayed(Duration(milliseconds: 100), () {
+    Future.delayed(
+      const Duration(milliseconds: 100),
+      () {
 
-      scrollController.animateTo(
-        scrollController.position.maxScrollExtent,
-        duration: Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
+        scrollController.animateTo(
 
-    });
+          scrollController
+              .position.maxScrollExtent,
+
+          duration:
+              const Duration(
+                  milliseconds: 300),
+
+          curve: Curves.easeOut,
+        );
+      },
+    );
   }
-
-  // ---------------- SEND MESSAGE ---------------- //
 
   Future<void> sendMessage() async {
 
-    if (controller.text.trim().isEmpty) return;
+    if (controller.text
+        .trim()
+        .isEmpty) return;
 
-    String userText = controller.text.trim();
+    String userText =
+        controller.text.trim();
 
     addMessage(userText, true);
 
     controller.clear();
 
     setState(() {
+
       isLoading = true;
+
     });
 
     try {
 
-      final response = await http.post(
+      final response =
+          await http.post(
 
-        Uri.parse("http://127.0.0.1:5000/chat"),
+        Uri.parse(
+          'http://127.0.0.1:5000/chat',
+        ),
 
         headers: {
-          "Content-Type": "application/json",
+
+          'Content-Type':
+              'application/json',
+
         },
 
         body: jsonEncode({
-          "message": userText,
+
+          'message': userText,
+
         }),
       );
 
-      if (response.statusCode == 200) {
+      if (response.statusCode ==
+          200) {
 
-        final data = jsonDecode(response.body);
+        final data =
+            jsonDecode(response.body);
 
-        String reply = data["reply"];
+        String aiReply =
+            data['reply'];
 
-        addMessage(reply, false);
+        addMessage(
+          aiReply,
+          false,
+        );
+
+        speak(aiReply);
 
       } else {
 
         addMessage(
-          "Sorry, something went wrong.",
+          "Something went wrong.",
           false,
         );
-
       }
 
     } catch (e) {
 
       addMessage(
-        "Cannot connect to AI server.",
+        "Cannot connect to server.",
         false,
       );
-
-      print(e);
-
     }
 
     setState(() {
+
       isLoading = false;
+
     });
   }
 
-  // ---------------- START LISTENING ---------------- //
-
   Future<void> startListening() async {
 
-    bool available = await speech.initialize();
+    if (isListening) return;
 
-    if (available) {
+    controller.clear();
 
-      setState(() {
-        isListening = true;
-      });
+    bool available =
+        await speech.initialize();
 
-      speech.listen(
+    if (!available) return;
 
-        onResult: (result) {
+    setState(() {
 
-          setState(() {
+      isListening = true;
 
-            controller.text = result.recognizedWords;
+    });
 
-          });
+    speech.listen(
 
-        },
-      );
-    }
+      partialResults: true,
+
+      listenMode:
+          stt.ListenMode.dictation,
+
+      onResult: (result) {
+
+        if (!mounted) return;
+
+        controller.value =
+            TextEditingValue(
+
+          text:
+              result.recognizedWords,
+
+          selection:
+              TextSelection
+                  .collapsed(
+
+            offset:
+                result
+                    .recognizedWords
+                    .length,
+          ),
+        );
+      },
+    );
   }
 
-  // ---------------- STOP LISTENING ---------------- //
-
   Future<void> stopListening() async {
+
+    if (!isListening) return;
 
     await speech.stop();
 
     setState(() {
+
       isListening = false;
+
     });
 
-    if (controller.text.trim().isNotEmpty) {
-
-      sendMessage();
-
-    }
+    FocusScope.of(context)
+        .unfocus();
   }
 
-  // ---------------- CHAT BUBBLE ---------------- //
+  Widget buildWaveBar(
+      double height) {
 
-  Widget buildMessage(Map<String, dynamic> msg) {
+    return AnimatedContainer(
 
-    bool isUser = msg["isUser"];
+      duration:
+          const Duration(
+              milliseconds: 300),
+
+      margin:
+          const EdgeInsets.symmetric(
+        horizontal: 2,
+      ),
+
+      width: 4,
+
+      height: height,
+
+      decoration: BoxDecoration(
+
+        color: Colors.white,
+
+        borderRadius:
+            BorderRadius.circular(10),
+      ),
+    );
+  }
+
+  Widget buildMessage(
+      Map<String, dynamic> msg) {
+
+    bool isUser = msg['isUser'];
 
     return Align(
 
-      alignment:
-          isUser
-              ? Alignment.centerRight
-              : Alignment.centerLeft,
+      alignment: isUser
+          ? Alignment.centerRight
+          : Alignment.centerLeft,
 
       child: Container(
 
-        margin: EdgeInsets.symmetric(
-          horizontal: 10,
-          vertical: 5,
+        margin:
+            const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 10,
         ),
 
-        padding: EdgeInsets.all(14),
+        padding:
+            const EdgeInsets.symmetric(
+          horizontal: 20,
+          vertical: 18,
+        ),
 
-        constraints: BoxConstraints(maxWidth: 320),
+        constraints:
+            const BoxConstraints(
+          maxWidth: 320,
+        ),
 
         decoration: BoxDecoration(
 
+          gradient: isUser
+              ? const LinearGradient(
+
+                  colors: [
+
+                    Color(0xFF6F4BFF),
+                    Color(0xFF8A63FF),
+
+                  ],
+                )
+              : null,
+
           color: isUser
-              ? Colors.blue
+              ? null
               : Colors.white,
 
-          borderRadius: BorderRadius.circular(18),
+          borderRadius:
+              BorderRadius.circular(
+                  26),
 
           boxShadow: [
+
             BoxShadow(
-              color: Colors.black12,
-              blurRadius: 4,
+
+              color: Colors.black
+                  .withOpacity(0.08),
+
+              blurRadius: 10,
+
+              offset:
+                  const Offset(0, 4),
             ),
           ],
         ),
 
         child: Text(
 
-          msg["text"],
+          msg['text'],
 
           style: TextStyle(
-            color:
-                isUser
-                    ? Colors.white
-                    : Colors.black87,
-            fontSize: 16,
-            height: 1.4,
+
+            color: isUser
+                ? Colors.white
+                : Colors.black87,
+
+            fontSize: 18,
+
+            height: 1.5,
+
+            fontWeight:
+                FontWeight.w500,
           ),
         ),
       ),
     );
   }
 
-  // ---------------- UI ---------------- //
-
   @override
   Widget build(BuildContext context) {
 
     return Scaffold(
 
-      backgroundColor: Color(0xFFF4F1F8),
+      backgroundColor:
+          const Color(0xFFF4F4F6),
 
-      appBar: AppBar(
+      body: SafeArea(
 
-        elevation: 0,
+        child: Column(
 
-        backgroundColor: Colors.white,
+          children: [
 
-        centerTitle: true,
+            Container(
 
-        title: Text(
-          "Emotion AI Assistant",
-          style: TextStyle(
-            color: Colors.black87,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
+              width: double.infinity,
 
-      body: Column(
+              padding:
+                  const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 24,
+              ),
 
-        children: [
+              decoration:
+                  const BoxDecoration(
 
-          Expanded(
+                gradient:
+                    LinearGradient(
 
-            child: ListView.builder(
+                  colors: [
 
-              controller: scrollController,
+                    Color(0xFF6F4BFF),
+                    Color(0xFF8A63FF),
 
-              padding: EdgeInsets.only(top: 10),
+                  ],
 
-              itemCount: messages.length,
+                  begin:
+                      Alignment.topLeft,
 
-              itemBuilder: (context, index) {
-
-                return buildMessage(messages[index]);
-
-              },
-            ),
-          ),
-
-          if (isLoading)
-
-            Padding(
-
-              padding: EdgeInsets.only(bottom: 8),
-
-              child: Text(
-                "Typing...",
-                style: TextStyle(
-                  color: Colors.grey,
+                  end: Alignment
+                      .bottomRight,
                 ),
+
+                borderRadius:
+                    BorderRadius.only(
+
+                  bottomLeft:
+                      Radius.circular(
+                          30),
+
+                  bottomRight:
+                      Radius.circular(
+                          30),
+                ),
+              ),
+
+              child: Column(
+
+                children: [
+
+                  Row(
+
+                    mainAxisAlignment:
+                        MainAxisAlignment
+                            .spaceBetween,
+
+                    children: [
+
+                      CircleAvatar(
+
+                        backgroundColor:
+                            Colors.white
+                                .withOpacity(
+                                    0.2),
+
+                        child:
+                            const Icon(
+
+                          Icons
+                              .arrow_back_ios_new,
+
+                          color:
+                              Colors.white,
+                        ),
+                      ),
+
+                      const Text(
+
+                        "AI Companion",
+
+                        style: TextStyle(
+
+                          color:
+                              Colors.white,
+
+                          fontSize: 24,
+
+                          fontWeight:
+                              FontWeight
+                                  .bold,
+                        ),
+                      ),
+
+                      CircleAvatar(
+
+                        backgroundColor:
+                            Colors.white
+                                .withOpacity(
+                                    0.2),
+
+                        child:
+                            const Icon(
+
+                          Icons.call,
+
+                          color:
+                              Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(
+                      height: 24),
+
+                  Container(
+
+                    width: 120,
+                    height: 120,
+
+                    decoration:
+                        BoxDecoration(
+
+                      shape:
+                          BoxShape.circle,
+
+                      color: Colors
+                          .white
+                          .withOpacity(
+                              0.1),
+                    ),
+
+                    child: const Icon(
+
+                      Icons
+                          .smart_toy_rounded,
+
+                      color:
+                          Colors.white,
+
+                      size: 70,
+                    ),
+                  ),
+
+                  const SizedBox(
+                      height: 18),
+
+                  const Text(
+
+                    "Your emotional wellness companion",
+
+                    style: TextStyle(
+
+                      color:
+                          Colors.white70,
+
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
               ),
             ),
 
-          // INPUT AREA
+            Expanded(
 
-          Container(
+              child: ListView.builder(
 
-            padding: EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 10,
+                controller:
+                    scrollController,
+
+                padding:
+                    const EdgeInsets.only(
+                  top: 20,
+                ),
+
+                itemCount:
+                    messages.length,
+
+                itemBuilder:
+                    (context, index) {
+
+                  return buildMessage(
+                    messages[index],
+                  );
+                },
+              ),
             ),
 
-            color: Colors.white,
+            if (isLoading)
 
-            child: Row(
+              const Padding(
 
-              children: [
+                padding:
+                    EdgeInsets.only(
+                  bottom: 10,
+                ),
 
-                Expanded(
+                child: Text(
 
-                  child: TextField(
+                  "Typing...",
 
-                    controller: controller,
+                  style: TextStyle(
+                    color: Colors.grey,
+                  ),
+                ),
+              ),
 
-                    minLines: 1,
-                    maxLines: 5,
+            Container(
 
-                    decoration: InputDecoration(
+              margin:
+                  const EdgeInsets.all(
+                16,
+              ),
 
-                      hintText:
-                          isListening
-                              ? "Listening..."
-                              : "Share your thoughts...",
+              padding:
+                  const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 8,
+              ),
 
-                      filled: true,
+              decoration:
+                  BoxDecoration(
 
-                      fillColor: Color(0xFFF4F1F8),
+                color: Colors.white,
 
-                      border: OutlineInputBorder(
+                borderRadius:
+                    BorderRadius.circular(
+                        30),
+
+                boxShadow: [
+
+                  BoxShadow(
+
+                    color: Colors.black
+                        .withOpacity(0.06),
+
+                    blurRadius: 10,
+
+                    offset:
+                        const Offset(0, 3),
+                  ),
+                ],
+              ),
+
+              child: Row(
+
+                children: [
+
+                  Expanded(
+
+                    child: TextField(
+
+                      controller:
+                          controller,
+
+                      minLines: 1,
+
+                      maxLines: 5,
+
+                      enabled:
+                          !isLoading,
+
+                      textInputAction:
+                          TextInputAction
+                              .send,
+
+                      onSubmitted: (_) {
+
+                        if (!isListening) {
+
+                          sendMessage();
+                        }
+                      },
+
+                      style:
+                          const TextStyle(
+
+                        fontSize: 17,
+                      ),
+
+                      decoration:
+                          InputDecoration(
+
+                        hintText:
+                            isListening
+                                ? "Listening..."
+                                : "Share your thoughts...",
+
+                        hintStyle:
+                            const TextStyle(
+
+                          color:
+                              Colors.grey,
+                        ),
+
+                        border:
+                            InputBorder.none,
+
+                        contentPadding:
+                            const EdgeInsets
+                                .symmetric(
+
+                          horizontal: 14,
+
+                          vertical: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  GestureDetector(
+
+                    onTap:
+                        isListening
+                            ? null
+                            : sendMessage,
+
+                    child: Container(
+
+                      width: 56,
+                      height: 56,
+
+                      decoration:
+                          BoxDecoration(
+
+                        gradient:
+                            LinearGradient(
+
+                          colors:
+                              isListening
+                                  ? [
+
+                                      Colors.grey,
+                                      Colors.grey,
+                                    ]
+                                  : [
+
+                                      const Color(
+                                          0xFF6F4BFF),
+
+                                      const Color(
+                                          0xFF8A63FF),
+                                    ],
+                        ),
 
                         borderRadius:
-                            BorderRadius.circular(30),
-
-                        borderSide: BorderSide.none,
+                            BorderRadius
+                                .circular(
+                                    20),
                       ),
 
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 14,
+                      child:
+                          const Icon(
+
+                        Icons.send_rounded,
+
+                        color:
+                            Colors.white,
+
+                        size: 30,
                       ),
                     ),
                   ),
-                ),
 
-                SizedBox(width: 8),
+                  const SizedBox(
+                      width: 10),
 
-                // SEND BUTTON
+                  GestureDetector(
 
-                CircleAvatar(
-
-                  backgroundColor: Colors.blue,
-
-                  child: IconButton(
-
-                    icon: Icon(
-                      Icons.send,
-                      color: Colors.white,
-                    ),
-
-                    onPressed: sendMessage,
-                  ),
-                ),
-
-                SizedBox(width: 8),
-
-                // MIC BUTTON
-
-                CircleAvatar(
-
-                  backgroundColor:
-                      isListening
-                          ? Colors.green
-                          : Colors.red,
-
-                  child: IconButton(
-
-                    icon: Icon(
-
-                      isListening
-                          ? Icons.mic
-                          : Icons.mic_none,
-
-                      color: Colors.white,
-                    ),
-
-                    onPressed: () {
+                    onTap: () async {
 
                       if (isListening) {
 
-                        stopListening();
+                        await stopListening();
 
                       } else {
 
-                        startListening();
-
+                        await startListening();
                       }
                     },
+
+                    child: Container(
+
+                      width: 56,
+                      height: 56,
+
+                      decoration:
+                          BoxDecoration(
+
+                        color: isListening
+                            ? Colors.red
+                            : Colors.green,
+
+                        borderRadius:
+                            BorderRadius
+                                .circular(
+                                    20),
+                      ),
+
+                      child: isListening
+
+                          ? Row(
+
+                              mainAxisAlignment:
+                                  MainAxisAlignment
+                                      .center,
+
+                              children: [
+
+                                buildWaveBar(
+                                    14),
+
+                                buildWaveBar(
+                                    22),
+
+                                buildWaveBar(
+                                    18),
+
+                                buildWaveBar(
+                                    26),
+
+                                buildWaveBar(
+                                    16),
+                              ],
+                            )
+
+                          : const Icon(
+
+                              Icons.mic,
+
+                              color:
+                                  Colors.white,
+
+                              size: 30,
+                            ),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

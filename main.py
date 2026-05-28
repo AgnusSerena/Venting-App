@@ -1,14 +1,14 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from transformers import pipeline
-import random
-
-# ---------------- APP ---------------- #
+from google import genai
 
 app = Flask(__name__)
 CORS(app)
 
-# ---------------- EMOTION MODEL ---------------- #
+client = genai.Client(
+    api_key="Ab8RN6LvHWgECAesBz5S8S5-OqwI9kikFLWZw6D3nBvsUCYP8A"
+)
 
 emotion_model = pipeline(
     "text-classification",
@@ -17,11 +17,14 @@ emotion_model = pipeline(
     device=-1
 )
 
-# ---------------- NORMALIZE ---------------- #
+conversation_history = []
+
+MAX_MEMORY = 8
 
 def normalize(label):
 
     mapping = {
+
         "sadness": "sad",
         "joy": "happy",
         "anger": "angry",
@@ -33,211 +36,182 @@ def normalize(label):
 
     return mapping.get(label, label)
 
-# ---------------- ANALYZE EMOTION ---------------- #
-
 def analyze_emotion(text):
 
     results = emotion_model(text)[0]
 
-    best = max(results, key=lambda x: x['score'])
+    best = max(
+        results,
+        key=lambda x: x['score']
+    )
 
-    emotion = normalize(best['label'])
+    emotion = normalize(
+        best['label']
+    )
 
     confidence = best['score']
 
     return emotion, confidence
 
-# ---------------- GENERATE HUMAN RESPONSE ---------------- #
+def build_memory_context():
 
-def generate_response(user_text, emotion):
+    memory = ""
 
-    text = user_text.lower()
+    recent_messages = conversation_history[-MAX_MEMORY:]
 
-    # ---------------- SAD ---------------- #
+    for msg in recent_messages:
 
-    if emotion == "sad":
+        role = msg["role"]
 
-        if "depress" in text:
+        text = msg["text"]
 
-            return (
-                "I'm really sorry you're feeling this way. "
-                "It sounds like things have been emotionally exhausting lately. "
-                "You don’t have to carry everything alone."
-            )
+        memory += f"{role}: {text}\n"
 
-        elif "lonely" in text:
+    return memory
 
-            return (
-                "Feeling lonely can hurt a lot sometimes. "
-                "I’m here with you, and you deserve someone who truly listens."
-            )
+def generate_ai_response(
+    user_text,
+    emotion
+):
 
-        elif "heavy" in text:
+    memory_context = build_memory_context()
 
-            return (
-                "That emotional heaviness can become really overwhelming after a while. "
-                "Try not to be too hard on yourself right now."
-            )
+    prompt = f"""
+You are a compassionate emotional wellness companion.
 
-        elif "cry" in text:
+Conversation History:
+{memory_context}
 
-            return (
-                "It’s okay to cry sometimes. "
-                "You’ve probably been holding in a lot more than people realize."
-            )
+Current User Emotion:
+{emotion}
 
-        elif "tired" in text:
+Current User Message:
+{user_text}
 
-            return (
-                "You sound emotionally drained. "
-                "Maybe you've been trying to stay strong for too long."
-            )
+Rules:
+- sound like a caring human
+- emotionally supportive
+- natural conversation
+- conversational tone
+- short meaningful replies
+- continue previous conversation naturally
+- never mention AI
+- never sound robotic
+"""
 
-        else:
+    try:
 
-            responses = [
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
 
-                "That sounds really difficult. I'm here to listen to you.",
+        return response.text
 
-                "I know things may feel overwhelming right now, but your feelings matter.",
+    except Exception as e:
 
-                "You deserve support and kindness too, especially during hard moments.",
+        print("Gemini Error:", e)
 
-                "You don’t always have to pretend to be okay."
-            ]
+        fallback = {
 
-            return random.choice(responses)
+            "sad":
+                "I'm really sorry you're feeling this way. I'm here with you.",
 
-    # ---------------- FEAR / ANXIETY ---------------- #
+            "happy":
+                "That honestly sounds really nice 😊",
 
-    elif emotion == "fear":
+            "angry":
+                "That sounds frustrating. Take a slow breath for a moment.",
 
-        if "can't breathe" in text or "panic" in text:
+            "fear":
+                "You're safe right now. Try taking things one step at a time.",
 
-            return (
-                "I’m here with you. "
-                "Try taking one slow breath at a time. "
-                "You’re safe right now."
-            )
+            "neutral":
+                "I'm listening. Tell me more about what's on your mind."
+        }
 
-        elif "anxious" in text:
-
-            return (
-                "Anxiety can make everything feel overwhelming. "
-                "You don’t need to solve everything all at once."
-            )
-
-        else:
-
-            responses = [
-
-                "That sounds overwhelming, but you’re not alone in this.",
-
-                "Take things one step at a time. You’re doing better than you think.",
-
-                "I’m here with you through this."
-            ]
-
-            return random.choice(responses)
-
-    # ---------------- ANGER ---------------- #
-
-    elif emotion == "angry":
-
-        responses = [
-
-            "That sounds really frustrating. I can understand why you'd feel upset.",
-
-            "It’s okay to feel angry sometimes. Your feelings are valid.",
-
-            "You’ve probably been holding a lot inside for a while."
-        ]
-
-        return random.choice(responses)
-
-    # ---------------- HAPPY ---------------- #
-
-    elif emotion == "happy":
-
-        responses = [
-
-            "That honestly made me smile too 😊",
-
-            "I’m really glad something good happened for you today.",
-
-            "You deserve moments like this."
-        ]
-
-        return random.choice(responses)
-
-    # ---------------- NEUTRAL ---------------- #
-
-    else:
-
-        responses = [
-
-            "I’m listening. Tell me more about that.",
-
-            "How has your day been emotionally?",
-
-            "I’m here with you.",
-
-            "What’s been on your mind lately?"
-        ]
-
-        return random.choice(responses)
-
-# ---------------- CHAT API ---------------- #
+        return fallback.get(
+            emotion,
+            "I'm here with you."
+        )
 
 @app.route("/chat", methods=["POST"])
 def chat():
 
     data = request.get_json()
 
-    user_text = data.get("message", "")
+    user_text = data.get(
+        "message",
+        ""
+    )
 
     if not user_text:
 
         return jsonify({
-            "reply": "Please say something."
+
+            "reply":
+                "Please say something."
+
         })
 
-    # ---------------- EMOTION + CONFIDENCE ---------------- #
-
-    emotion, confidence = analyze_emotion(user_text)
+    emotion, confidence = analyze_emotion(
+        user_text
+    )
 
     print(f"Emotion: {emotion}")
     print(f"Confidence: {confidence}")
 
-    # ---------------- CONFIDENCE CHECK ---------------- #
+    conversation_history.append({
+
+        "role": "User",
+        "text": user_text
+
+    })
 
     if confidence > 0.90:
 
-        reply = generate_response(user_text, emotion)
+        reply = generate_ai_response(
+            user_text,
+            emotion
+        )
 
     else:
 
         reply = (
             "I'm here with you. "
-            "Tell me more about what's on your mind."
+            "Tell me more about what you're feeling."
         )
 
-    return jsonify({
-        "reply": reply
+    conversation_history.append({
+
+        "role": "Assistant",
+        "text": reply
+
     })
 
-# ---------------- HOME ---------------- #
+    if len(conversation_history) > 20:
+
+        conversation_history.pop(0)
+
+    return jsonify({
+
+        "reply": reply,
+
+        "emotion": emotion,
+
+        "confidence": confidence
+    })
 
 @app.route("/")
 def home():
 
     return "Emotion AI Backend Running"
 
-
-
 if __name__ == "__main__":
 
     app.run(
+
         host="0.0.0.0",
+
         port=5000
     )
