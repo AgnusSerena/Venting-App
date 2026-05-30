@@ -7,7 +7,7 @@ app = Flask(__name__)
 CORS(app)
 
 client = genai.Client(
-    api_key="Ab8RN6LvHWgECAesBz5S8S5-OqwI9kikFLWZw6D3nBvsUCYP8A"
+    api_key="YOUR_GEMINI_API_KEY"
 )
 
 emotion_model = pipeline(
